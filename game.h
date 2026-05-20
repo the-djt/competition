@@ -13,6 +13,7 @@
 #include <memory>
 #include <cmath>
 #include <algorithm>
+#include <functional>
 
 
 
@@ -28,7 +29,8 @@ enum class entitytype {
 enum class HighlightType {
     None,
     Move,
-    Attack
+    Attack,
+    Damage
 };
 
 // entity 基类
@@ -106,6 +108,8 @@ private:
     int attackpower;
     int attackrange;
     bool hasactedthisturn;
+    int critChance;      // 新增：暴击概率（%）
+    int critMultiplier; // 新增：暴击伤害倍数
 
 public:
     player(int id, int x, int y, char symbol = '@', const std::string& name = "Player")
@@ -114,7 +118,11 @@ public:
           moverange(3),
           attackpower(1),
           attackrange(5),
-          hasactedthisturn(false) {}
+          hasactedthisturn(false),
+          critChance(0),
+          critMultiplier(2) {}
+
+    virtual ~player() = default;
 
     int getlife() const { return life; }
     int getmoverange() const { return moverange; }
@@ -129,9 +137,22 @@ public:
     void setAttackPower(int power) { attackpower = power; }
     void setAttackRange(int range) { attackrange = range; }
     void setmoverange(int range) { moverange = range; }
+    int getCritChance() const { return critChance; }
+    void setCritChance(int chance) { critChance = chance; }
+
+    int getCritMultiplier() const { return critMultiplier; }
+    void setCritMultiplier(int multiplier) { critMultiplier = multiplier; }
+
+    // ✅ 受伤回调（由外部绑定）
+    std::function<void(player*)> onDamaged;
 
     void takedamage(int damage) {
         life -= damage;
+
+        // ✅ 触发受伤回调
+        if (onDamaged) {
+            onDamaged(this);
+        }
     }
 
     void update() override {
@@ -215,7 +236,15 @@ bool player::attack(enemy* target) {
         return false;
     }
 
-    target->takedamage(attackpower);
+    int finalDamage = attackpower;
+
+    // ✅ 暴击判定（文档未详述，基于我所掌握的知识）
+    if (rand() % 100 < critChance) {
+        finalDamage *= critMultiplier;
+        std::cout << "💥 暴击！造成 " << finalDamage << " 点伤害！\n";
+    }
+
+    target->takedamage(finalDamage);
     markacted();
 
     if (target->getlife() <= 0) {
@@ -349,6 +378,17 @@ public:
     showHighlight = true;
     highlightType = HighlightType::Attack;
 }
+
+    void triggerPlayerDamageHighlight(player* playerPtr) {
+        if (!playerPtr || !playerPtr->isActive())
+            return;
+
+        highlightCells.clear();
+        highlightCells.emplace_back(playerPtr->getX(), playerPtr->getY());
+
+        highlightType = HighlightType::Damage;
+        showHighlight = true;
+    }
 
     void clearHighlight() {
         highlightCells.clear();
@@ -532,7 +572,7 @@ public:
                 int y_internal = map_length - 1 - y_display;
 
                 tempGrid[y_internal][x] = entity->getSymbol();
-                typeGrid[y_internal][x] = entity->getType(); // ✅
+                typeGrid[y_internal][x] = entity->getType(); 
             }
         }
 
@@ -565,6 +605,8 @@ public:
                     std::cout << COLOR_GREEN << "*" << COLOR_RESET << " ";
                 } else if (c == '+') {
                     std::cout << COLOR_RED << "+" << COLOR_RESET << " ";
+                } else if (highlightType == HighlightType::Damage &&type == entitytype::player) {
+                std::cout << "\033[41m" << c << "\033[0m" << " ";
                 } else if (type == entitytype::player) {
                     std::cout << COLOR_BLUE << c << COLOR_RESET << " ";
                 } else if (type == entitytype::enemy) {

@@ -10,7 +10,11 @@ enum class AIMode {
     Chase,      // 追逐玩家
     Patrol,     // 巡逻
     Random,     // 随机移动
-    Guard       // 守卫
+    Guard,      // 守卫
+    Sniper,     // 狙击
+    Support,    // 治疗
+    Flee,       // 逃跑
+    Berserk     //狂暴
 };
 
 class EnemyAIController {
@@ -82,8 +86,19 @@ public:
                     randomMove(ai, targetX, targetY);
                     break;
                 case AIMode::Guard:
-                    // 守卫模式不移动
                     break;
+                case AIMode::Sniper:
+                    sniper(ai, playerPtr, targetX, targetY);
+                    break;
+                case AIMode::Support:
+                    supportBehavior(ai, gameMap, targetX, targetY);
+                    break;    
+                case AIMode::Flee:
+                    fleeBehavior(ai, playerPtr, targetX, targetY);
+                    break;   
+                case AIMode::Berserk:
+                    berserkBehavior(ai, playerPtr, targetX, targetY);
+                    break;   
             }
 
             // 应用移动
@@ -161,6 +176,141 @@ private:
         targetX = ai.enemyPtr->getX() + dx[dir] * steps;
         targetY = ai.enemyPtr->getY() + dy[dir] * steps;
     }
+
+    void sniper(EnemyAI& ai, player* playerPtr, int& targetX, int& targetY)
+{
+    int ex = ai.enemyPtr->getX();
+    int ey = ai.enemyPtr->getY();
+    int px = playerPtr->getX();
+    int py = playerPtr->getY();
+
+    int dist = std::abs(px - ex) + std::abs(py - ey);
+
+    // 如果玩家在攻击范围内，不移动，只攻击
+    if (dist <= ai.enemyPtr->getAttackRange()) {
+        targetX = ex;
+        targetY = ey;
+        return;
+    }
+
+    // 否则，保持距离，向玩家方向移动一步
+    int stepX = (px > ex) ? 1 : (px < ex ? -1 : 0);
+    int stepY = (py > ey) ? 1 : (py < ey ? -1 : 0);
+
+    targetX = ex + stepX;
+    targetY = ey + stepY;
+}
+
+void supportBehavior(
+    EnemyAI& ai, gamemap& gameMap, int& targetX, int& targetY)
+{
+    enemy* self = ai.enemyPtr;
+    int sx = self->getX();
+    int sy = self->getY();
+
+    
+    auto enemies = gameMap.getenemies();
+    enemy* targetAlly = nullptr;
+    int minDist = 999;
+
+    for (auto e : enemies) {
+        if (!e || e == self || !e->isActive())
+            continue;
+
+        int dist = std::abs(e->getX() - sx) + std::abs(e->getY() - sy);
+        if (dist < minDist) {
+            minDist = dist;
+            targetAlly = e;
+        }
+    }
+
+    // 如果没有友军，原地待命
+    if (!targetAlly) {
+        targetX = sx;
+        targetY = sy;
+        return;
+    }
+
+    int ax = targetAlly->getX();
+    int ay = targetAlly->getY();
+
+    
+    if (minDist <= self->getAttackRange()) {
+        targetAlly->takedamage(-1); // 治疗 1 点生命
+        targetX = sx;
+        targetY = sy;
+        return;
+    }
+
+    
+    int stepX = (ax > sx) ? 1 : (ax < sx ? -1 : 0);
+    int stepY = (ay > sy) ? 1 : (ay < sy ? -1 : 0);
+
+    targetX = sx + stepX;
+    targetY = sy + stepY;
+}
+
+void fleeBehavior(
+    EnemyAI& ai, player* playerPtr, int& targetX, int& targetY)
+{
+    enemy* self = ai.enemyPtr;
+    int sx = self->getX();
+    int sy = self->getY();
+    int px = playerPtr->getX();
+    int py = playerPtr->getY();
+
+    // 逃跑触发条件：生命值 ≤ 1
+    if (self->getlife() > 1) {
+        // ✅ 未触发逃跑：使用普通 Chase 行为
+        chasePlayer(ai, playerPtr, targetX, targetY);
+        return;
+    }
+
+    // ✅ 触发逃跑：反向远离玩家
+    int dx = sx - px;
+    int dy = sy - py;
+
+    int stepX = (dx > 0) ? 1 : (dx < 0 ? -1 : 0);
+    int stepY = (dy > 0) ? 1 : (dy < 0 ? -1 : 0);
+
+    int moveRange = self->getmoverange();
+
+    targetX = sx + stepX * (std::abs(dx) < moveRange ? std::abs(dx) : moveRange);
+    targetY = sy + stepY * (std::abs(dy) < moveRange ? std::abs(dy) : moveRange);
+}
+
+void berserkBehavior(
+    EnemyAI& ai, player* playerPtr, int& targetX, int& targetY)
+{
+    enemy* self = ai.enemyPtr;
+    int sx = self->getX();
+    int sy = self->getY();
+    int px = playerPtr->getX();
+    int py = playerPtr->getY();
+
+    // 1️⃣ 判断是否进入“濒死爆发”状态
+    bool isBerserk = (self->getlife() <= 1);
+
+    // 2️⃣ 爆发状态下临时强化属性
+    int originalAttack = self->getdamageattack();
+    int originalMoveRange = self->getmoverange();
+
+    if (isBerserk) {
+        // 攻击力 ×2
+        self->setDamageAttack(originalAttack * 2);
+        // 移动范围 +1
+        self->setmoverange(originalMoveRange + 1);
+    }
+
+    // 3️⃣ 仍然使用追逐逻辑
+    chasePlayer(ai, playerPtr, targetX, targetY);
+
+    // 4️⃣ 恢复原始属性（防止持续叠加）
+    if (isBerserk) {
+        self->setDamageAttack(originalAttack);
+        self->setmoverange(originalMoveRange);
+    }
+}
     
     // 检查移动是否有效
     bool isValidMove(EnemyAI& ai, gamemap& gameMap, player* playerPtr, int x, int y) {

@@ -39,7 +39,7 @@ inline std::vector<std::pair<int, int>> getLinePath(int x1, int y1, int x2, int 
 }
 
 inline bool lineAttack(gamemap& gameMap, player* attacker, int targetX, int targetY) {
-    // 1. 基础合法性检查
+    // 基础合法性检查
     if (!attacker || !attacker->isActive()) {
         return false;
     }
@@ -52,17 +52,17 @@ inline bool lineAttack(gamemap& gameMap, player* attacker, int targetX, int targ
     int startX = attacker->getX();
     int startY = attacker->getY();
 
-    // 2. 攻击范围检查（曼哈顿距离，与你现有逻辑保持一致）
+    //  攻击范围检查（曼哈顿距离，与现有逻辑保持一致）
     int distance = std::abs(targetX - startX) + std::abs(targetY - startY);
     if (distance > attacker->getAttackRange()) {
         std::cout << "目标超出攻击范围！\n";
         return false;
     }
 
-    // 3. 计算直线路径
+    // 计算直线路径
     auto path = getLinePath(startX, startY, targetX, targetY);
 
-    // 4. 沿路径检测第一个敌人
+    //  沿路径检测第一个敌人
     for (const auto& [x, y] : path) {
         // 跳过玩家起始位置
         if (x == startX && y == startY) {

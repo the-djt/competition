@@ -18,6 +18,7 @@ struct Talent {
     int attackBonus = 0;
     int attackRangeBonus = 0;
     int moveRangeBonus = 0;
+    int critChance=0;
 
     std::vector<std::string> prerequisites;//前置天赋ID
     UnlockRule rule = UnlockRule::All;     //解锁规则
