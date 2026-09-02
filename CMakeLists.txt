@@ -28,6 +28,7 @@ target_include_directories(game_core PUBLIC src)
 add_executable(battlefront_breakout WIN32
     src/main.cpp
     src/app/game_app.cpp
+    src/app/rendering.cpp
 )
 target_include_directories(battlefront_breakout PRIVATE src)
 target_link_libraries(battlefront_breakout PRIVATE game_core raylib)

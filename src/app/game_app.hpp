@@ -2,8 +2,7 @@
 
 #include "core/game_core.hpp"
 #include "core/profile_store.hpp"
-
-#include <raylib.h>
+#include "app/rendering.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -39,6 +38,15 @@ private:
         Color color = WHITE;
     };
 
+    struct TextCommand {
+        std::string value;
+        Vector2 position{};
+        float size = 24.0F;
+        float spacing = 1.0F;
+        Color color = WHITE;
+        FontRole role = FontRole::Body;
+    };
+
     GameSession game_;
     ProfileStore profileStore_;
     PlayerProfile profile_;
@@ -48,8 +56,9 @@ private:
     GridPos keyboardCursor_{3, 0};
     std::optional<GridPos> hoverCell_;
 
-    Font font_{};
-    bool ownsFont_ = false;
+    FontManager fonts_;
+    RenderMetrics renderMetrics_;
+    mutable std::vector<TextCommand> textCommands_;
     RenderTexture2D canvas_{};
     bool windowReady_ = false;
     bool shouldExit_ = false;
@@ -73,7 +82,6 @@ private:
 
     void initialize();
     void shutdown();
-    void loadGameFont();
     void initializeAudio();
     Sound makeTone(float frequency, float duration, float decay) const;
     void playSoundFor(const GameEvent& event);
@@ -121,7 +129,7 @@ private:
     bool button(Rectangle bounds, const std::string& label, Vector2 mouse,
                 Color accent, float fontSize = 27.0F);
     void text(const std::string& value, Vector2 position, float size, Color color,
-              float spacing = 1.0F) const;
+              float spacing = 1.0F, std::optional<FontRole> role = std::nullopt) const;
     void centeredText(const std::string& value, Rectangle bounds, float size, Color color) const;
     void panel(Rectangle bounds, Color border, Color fill) const;
 };

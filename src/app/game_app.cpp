@@ -91,7 +91,7 @@ int GameApp::run(const std::string& qaScreenshot, bool smokeTest, const std::str
 
 void GameApp::initialize() {
     if (windowReady_) return;
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT | FLAG_MSAA_4X_HINT);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT | FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI);
     InitWindow(kVirtualWidth, kVirtualHeight, "战线突围 · Battlefront Breakout");
     SetWindowMinSize(1120, 630);
     SetTargetFPS(60);
@@ -105,7 +105,12 @@ void GameApp::initialize() {
         toast_ = warning;
         toastTime_ = 4.0F;
     }
-    loadGameFont();
+    renderMetrics_.update(kVirtualWidth, kVirtualHeight);
+    fonts_.update(renderMetrics_.rasterScale());
+    if (fonts_.usingFallback()) {
+        toast_ = "字体加载失败，已使用系统降级字体";
+        toastTime_ = 4.0F;
+    }
     initializeAudio();
 }
 
@@ -121,38 +126,10 @@ void GameApp::shutdown() {
         CloseAudioDevice();
         audioReady_ = false;
     }
-    if (ownsFont_) UnloadFont(font_);
-    ownsFont_ = false;
+    fonts_.shutdown();
     UnloadRenderTexture(canvas_);
     CloseWindow();
     windowReady_ = false;
-}
-
-void GameApp::loadGameFont() {
-    const char* bundled = "assets/fonts/NotoSansSC-Regular.ttf";
-    const char* systemFallback = "C:/Windows/Fonts/msyh.ttc";
-    const char* selected = FileExists(bundled) ? bundled : systemFallback;
-    const char* glyphText =
-        "战线突围回合制术肉鸽玩家敌方关卡生命攻击射程移动暴主菜单开始新游戏人图鉴退出"
-        "继续暂停设置音量静教目标操作选择确认取消重返近兵刺客醉汉狙手坦克逃斗天使狂士"
-        "炮台追随机守卫支援初次交锋影袭酒馆乱叉火力钢铁阵背水一不要搏撕心裂肺穿越未竟"
-        "之强壮体魄直觉利刃迅捷步伐稳固瞄准巨视野专注疾致长勇气崩地横冲撞精弹幕死身获"
-        "得赋通失败胜鼠点格子数字键向按历史最佳当前用时伤害治疗备就绪意链路已建立第首完"
-        "成记录间纪枚棋条读懂的然后行预览可化查看说明识别威胁测为控场结算性红表示即将橙"
-        "悬信息规划下日志三掌握本能够其计位每只或切换也右侧钮指定黄色光快进入期声启项永"
-        "久效破功终会谎全部十个经你被载巡逻离知大率逼基础发脆弱但极擅贴走原否则寻找高低"
-        "是推中坚屏障濒远健康参与优先接并受友军半血提升无法较范令现在超占据上没有尚了员"
-        "到亡请该必须坐界存复实叠配错误档式异常默创写替旧"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-/%:.!?()[] ·—›，。：“”！？、；（）《》";
-    int codepointCount = 0;
-    int* codepoints = LoadCodepoints(glyphText, &codepointCount);
-    if (FileExists(selected)) {
-        font_ = LoadFontEx(selected, 44, codepoints, codepointCount);
-        ownsFont_ = font_.texture.id != 0;
-    }
-    UnloadCodepoints(codepoints);
-    if (!ownsFont_) font_ = GetFontDefault();
-    SetTextureFilter(font_.texture, TEXTURE_FILTER_BILINEAR);
 }
 
 void GameApp::initializeAudio() {
@@ -438,6 +415,9 @@ void GameApp::restartLevel() {
 }
 
 void GameApp::drawFrame() {
+    renderMetrics_.update(kVirtualWidth, kVirtualHeight);
+    fonts_.update(renderMetrics_.rasterScale());
+    textCommands_.clear();
     const Vector2 mouse = virtualMouse();
     BeginTextureMode(canvas_);
     ClearBackground(kBackground);
@@ -458,20 +438,22 @@ void GameApp::drawFrame() {
     drawToast();
     EndTextureMode();
 
-    const float scale = std::min(static_cast<float>(GetScreenWidth()) / kVirtualWidth,
-                                 static_cast<float>(GetScreenHeight()) / kVirtualHeight);
-    const float width = kVirtualWidth * scale;
-    const float height = kVirtualHeight * scale;
-    float x = (GetScreenWidth() - width) * 0.5F;
-    float y = (GetScreenHeight() - height) * 0.5F;
+    float shakeX = 0.0F;
+    float shakeY = 0.0F;
     if (screenShake_ > 0.0F) {
-        x += std::sin(static_cast<float>(GetTime()) * 91.0F) * 5.0F * screenShake_;
-        y += std::cos(static_cast<float>(GetTime()) * 77.0F) * 3.0F * screenShake_;
+        shakeX = std::sin(static_cast<float>(GetTime()) * 91.0F) * 5.0F * screenShake_;
+        shakeY = std::cos(static_cast<float>(GetTime()) * 77.0F) * 3.0F * screenShake_;
     }
     BeginDrawing();
     ClearBackground(BLACK);
+    const Rectangle destination = renderMetrics_.worldDestination(shakeX, shakeY);
     DrawTexturePro(canvas_.texture, {0, 0, static_cast<float>(kVirtualWidth), -static_cast<float>(kVirtualHeight)},
-                   {x, y, width, height}, {0, 0}, 0.0F, WHITE);
+                   destination, {0, 0}, 0.0F, WHITE);
+    for (const auto& command : textCommands_) {
+        fonts_.draw(command.value, command.role, renderMetrics_.virtualToScreen(command.position),
+                    command.size * renderMetrics_.canvasScale(),
+                    command.spacing * renderMetrics_.canvasScale(), command.color);
+    }
     EndDrawing();
 }
 
@@ -718,6 +700,9 @@ void GameApp::drawParticles() const {
 }
 
 void GameApp::drawTutorial(Vector2 mouse) {
+    // The modal is opaque enough that background labels must not be replayed above it
+    // by the native-resolution text pass.
+    textCommands_.clear();
     DrawRectangle(0, 0, kVirtualWidth, kVirtualHeight, Color{2, 5, 12, 205});
     const Rectangle bounds{210, 105, 1180, 690};
     panel(bounds, kCyan, Color{8, 19, 36, 250});
@@ -742,6 +727,7 @@ void GameApp::drawTutorial(Vector2 mouse) {
 }
 
 void GameApp::drawPause(Vector2 mouse) {
+    textCommands_.clear();
     DrawRectangle(0, 0, kVirtualWidth, kVirtualHeight, Color{2, 5, 12, 205});
     const Rectangle bounds{500, 175, 600, 550};
     panel(bounds, kBlue, Color{9, 20, 38, 250});
@@ -766,6 +752,7 @@ void GameApp::drawPause(Vector2 mouse) {
 void GameApp::drawPhaseModal(const GameSnapshot& snapshot, Vector2 mouse) {
     if (snapshot.phase == TurnPhase::Player || snapshot.phase == TurnPhase::Enemy) return;
     if (scene_ != Scene::Battle) return;
+    textCommands_.clear();
     DrawRectangle(0, 0, kVirtualWidth, kVirtualHeight, Color{2, 5, 12, 185});
     if (snapshot.phase == TurnPhase::TalentChoice) {
         const Rectangle bounds{145, 125, 1310, 650};
@@ -819,7 +806,7 @@ void GameApp::drawPhaseModal(const GameSnapshot& snapshot, Vector2 mouse) {
 
 void GameApp::drawToast() const {
     if (toastTime_ <= 0.0F || toast_.empty()) return;
-    const Vector2 measured = MeasureTextEx(font_, toast_.c_str(), 21, 1);
+    const Vector2 measured = fonts_.measure(toast_, FontRole::Body, 21, 1);
     const Rectangle bounds{(kVirtualWidth - measured.x - 54) * 0.5F, 824, measured.x + 54, 48};
     DrawRectangleRounded(bounds, 0.45F, 10, Color{5, 12, 25, 236});
     DrawRectangleRoundedLinesEx(bounds, 0.45F, 10, 1.5F, Fade(kCyan, 0.6F));
@@ -827,12 +814,7 @@ void GameApp::drawToast() const {
 }
 
 Vector2 GameApp::virtualMouse() const {
-    const Vector2 raw = GetMousePosition();
-    const float scale = std::min(static_cast<float>(GetScreenWidth()) / kVirtualWidth,
-                                 static_cast<float>(GetScreenHeight()) / kVirtualHeight);
-    const float offsetX = (GetScreenWidth() - kVirtualWidth * scale) * 0.5F;
-    const float offsetY = (GetScreenHeight() - kVirtualHeight * scale) * 0.5F;
-    return {(raw.x - offsetX) / scale, (raw.y - offsetY) / scale};
+    return renderMetrics_.screenToVirtual(GetMousePosition());
 }
 
 Color GameApp::unitColor(UnitKind kind) const {
@@ -892,7 +874,10 @@ bool GameApp::button(Rectangle bounds, const std::string& label, Vector2 mouse, 
     const bool hovered = CheckCollisionPointRec(mouse, bounds);
     DrawRectangleRounded(bounds, 0.16F, 8, hovered ? Fade(accent, 0.20F) : Color{12, 27, 48, 245});
     DrawRectangleRoundedLinesEx(bounds, 0.16F, 8, hovered ? 2.5F : 1.5F, hovered ? accent : Fade(accent, 0.46F));
-    centeredText(label, bounds, fontSize, hovered ? WHITE : kText);
+    const Vector2 measured = fonts_.measure(label, FontRole::Button, fontSize, 1.0F);
+    text(label, {bounds.x + (bounds.width - measured.x) * 0.5F,
+                 bounds.y + (bounds.height - measured.y) * 0.5F},
+         fontSize, hovered ? WHITE : kText, 1.0F, FontRole::Button);
     if (hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         playMenuSound();
         return true;
@@ -900,14 +885,17 @@ bool GameApp::button(Rectangle bounds, const std::string& label, Vector2 mouse, 
     return false;
 }
 
-void GameApp::text(const std::string& value, Vector2 position, float size, Color color, float spacing) const {
-    DrawTextEx(font_, value.c_str(), position, size, spacing, color);
+void GameApp::text(const std::string& value, Vector2 position, float size, Color color,
+                   float spacing, std::optional<FontRole> role) const {
+    textCommands_.push_back({value, position, size, spacing, color,
+                             role.value_or(fontRoleForSize(size))});
 }
 
 void GameApp::centeredText(const std::string& value, Rectangle bounds, float size, Color color) const {
-    const Vector2 measured = MeasureTextEx(font_, value.c_str(), size, 1.0F);
+    const FontRole role = fontRoleForSize(size);
+    const Vector2 measured = fonts_.measure(value, role, size, 1.0F);
     text(value, {bounds.x + (bounds.width - measured.x) * 0.5F,
-                 bounds.y + (bounds.height - measured.y) * 0.5F}, size, color);
+                 bounds.y + (bounds.height - measured.y) * 0.5F}, size, color, 1.0F, role);
 }
 
 void GameApp::panel(Rectangle bounds, Color border, Color fill) const {
