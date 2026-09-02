@@ -1,0 +1,31 @@
+# Build and tool downloads
+/build/
+/.tools/
+/.cache/
+CMakeUserPresets.json
+
+# Compiler and runtime output
+*.exe
+*.dll
+*.o
+*.obj
+*.a
+*.lib
+*.pdb
+*.ilk
+timerecords.txt
+/save/
+/qa/
+
+# Local editor metadata
+/.vscode/
+*.wsp
+
+# Local-only competition process material
+/演示视频.mov
+/实训文档.docx
+/设计文档/日志*.docx
+
+# OS noise
+Thumbs.db
+.DS_Store
